@@ -276,6 +276,47 @@ fn long_sentence() {
 }
 
 #[test]
+fn setters_compose_instead_of_resetting_each_other() {
+    let mut c = ctx();
+    let base = c.base_ini_params();
+    assert_eq!(
+        c.ini_params(),
+        base,
+        "a freshly loaded context must start at the InfoDic.wdic values"
+    );
+    c.set_speed(150);
+    c.set_pitch(225);
+    c.set_volume(75);
+    assert_eq!(
+        c.ini_params(),
+        ktts_synth::setting::IniParams {
+            pitch: 225,
+            speed: 150,
+            voice: base.voice,
+            volume: 75,
+        },
+    );
+    let p = c.params();
+    assert_ne!(p.speed, 1.0, "set_pitch/set_volume must not reset speed");
+    assert_ne!(p.pitch, 1.0, "set_speed/set_volume must not reset pitch");
+    assert_ne!(p.volume, 1.5, "set_speed/set_pitch must not reset volume");
+    assert_eq!(
+        c.base_ini_params(),
+        base,
+        "setters must not modify the InfoDic.wdic base values"
+    );
+
+    let mut c2 = ctx();
+    c2.set_params(ktts_synth::setting::IniParams {
+        pitch: 225,
+        speed: 150,
+        voice: base.voice,
+        volume: 75,
+    });
+    assert_eq!(c2.params(), p, "set_params must match composed setters");
+}
+
+#[test]
 fn psola_slow_path_output_differs_from_fast() {
     let text = PronText {
         syllables: vec![syl("\x0d\x03\x05", 0, true)],

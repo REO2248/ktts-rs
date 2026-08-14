@@ -130,6 +130,39 @@ fn synthesize_with_params_variations() {
 }
 
 #[test]
+fn simultaneous_params_all_applied() {
+    let mut engine = new_loaded_engine();
+    let text = "오늘은 날씨가 좋습니다";
+    let default_first = engine
+        .synthesize_impl(text, 1.0, 0.0, 1.0)
+        .unwrap_or_else(|e| panic!("synthesize_impl (defaults, before): {e}"));
+    let all = engine
+        .synthesize_impl(text, 1.5, 0.5, 1.5)
+        .unwrap_or_else(|e| panic!("synthesize_impl (all params): {e}"));
+    let volume_only = engine
+        .synthesize_impl(text, 1.0, 0.0, 1.5)
+        .unwrap_or_else(|e| panic!("synthesize_impl (volume only): {e}"));
+    let speed_only = engine
+        .synthesize_impl(text, 1.5, 0.0, 1.0)
+        .unwrap_or_else(|e| panic!("synthesize_impl (speed only): {e}"));
+    let default_again = engine
+        .synthesize_impl(text, 1.0, 0.0, 1.0)
+        .unwrap_or_else(|e| panic!("synthesize_impl (defaults, after): {e}"));
+    assert_ne!(
+        all, volume_only,
+        "speed=1.5/pitch=0.5 must survive when volume=1.5 is set at the same time"
+    );
+    assert_ne!(
+        all, speed_only,
+        "pitch=0.5/volume=1.5 must survive when speed=1.5 is set at the same time"
+    );
+    assert_eq!(
+        default_first, default_again,
+        "params must not leak between synthesize calls on the same engine"
+    );
+}
+
+#[test]
 fn synthesize_longer_sentence() {
     let mut engine = new_loaded_engine();
     let wav = engine

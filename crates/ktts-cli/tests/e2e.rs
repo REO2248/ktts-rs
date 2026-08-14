@@ -332,6 +332,63 @@ fn e2e_default_params_byte_identical_to_explicit_defaults() {
 
 #[test]
 #[ignore = "requires real data. KTTSDB_DIR=... cargo test -p ktts-cli --test e2e -- --ignored"]
+fn e2e_simultaneous_voice_params_all_applied() {
+    let text = "오늘은 날씨가 좋습니다";
+    let out = std::env::temp_dir().join("ktts_e2e_params_simul.wav");
+
+    let all = synthesize_with(
+        text,
+        &VoiceParams {
+            speed: 1.5,
+            pitch: 0.5,
+            volume: 1.5,
+        },
+        &out,
+    );
+    let volume_only = synthesize_with(
+        text,
+        &VoiceParams {
+            speed: 1.0,
+            pitch: 0.0,
+            volume: 1.5,
+        },
+        &out,
+    );
+    let speed_only = synthesize_with(
+        text,
+        &VoiceParams {
+            speed: 1.5,
+            pitch: 0.0,
+            volume: 1.0,
+        },
+        &out,
+    );
+    let pitch_only = synthesize_with(
+        text,
+        &VoiceParams {
+            speed: 1.0,
+            pitch: 0.5,
+            volume: 1.0,
+        },
+        &out,
+    );
+
+    assert_ne!(
+        all, volume_only,
+        "speed/pitch must survive when volume is set at the same time"
+    );
+    assert_ne!(
+        all, speed_only,
+        "pitch/volume must survive when speed is set at the same time"
+    );
+    assert_ne!(
+        all, pitch_only,
+        "speed/volume must survive when pitch is set at the same time"
+    );
+}
+
+#[test]
+#[ignore = "requires real data. KTTSDB_DIR=... cargo test -p ktts-cli --test e2e -- --ignored"]
 fn e2e_voice_params_change_output() {
     let text = "오늘은 날씨가 좋습니다";
     let out = std::env::temp_dir().join("ktts_e2e_params.wav");

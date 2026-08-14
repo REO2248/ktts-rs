@@ -383,10 +383,6 @@ const fn conv_target_to_my(t: ktts_prosody::SyllableTarget) -> SyllableTarget {
     }
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "C port: intentional truncation"
-)]
 fn stage_synth(
     pron: &PronText,
     targets: &[SyllableTarget],
@@ -396,15 +392,15 @@ fn stage_synth(
     let mut ctx = ktts_synth::load_synth_db_bytes(files, VOICE)
         .map_err(|e| PipelineError::Engine("ktts-synth", format!("load_synth_db: {e}")))?;
 
-    if (params.speed - 1.0).abs() > 1e-6 {
-        ctx.set_speed((100.0 * params.speed) as i32);
-    }
-    if params.pitch.abs() > 1e-6 {
-        ctx.set_pitch((150.0 * (1.0 + params.pitch)) as i32);
-    }
-    if (params.volume - 1.0).abs() > 1e-6 {
-        ctx.set_volume((150.0 * params.volume) as i32);
-    }
+    // One shot: setting the params individually would reset the others.
+    // Params left at their API default keep the InfoDic.wdic values.
+    let ini = ktts_synth::setting::IniParams::from_api(
+        ctx.base_ini_params(),
+        params.speed,
+        params.pitch,
+        params.volume,
+    );
+    ctx.set_params(ini);
 
     let input = conv_pron_to_synth(pron);
     let tgts: Vec<ktts_synth::SyllableTarget> = targets

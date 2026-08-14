@@ -18,7 +18,7 @@ use context::Phrase;
 use ktts_dict::synthdb::{
     PhoneDict, SynthGroupIdx, SynthIdx, parse_group_idx, parse_idx, parse_triangular_table,
 };
-use setting::SynthParams;
+use setting::{IniParams, SynthParams};
 use unitselect::BestPhone;
 
 pub use types::{PronSyllable, PronText, SyllableTarget};
@@ -165,22 +165,50 @@ impl SynthDb {
 #[derive(Debug)]
 pub struct SynthContext {
     db: SynthDb,
-    params: SynthParams,
+    /// Engine-unit voice parameters as loaded from `InfoDic.wdic`; the base
+    /// that the setters override. Never modified after load, so repeated
+    /// `set_params` calls stay independent of each other.
+    base: IniParams,
+    /// Current engine-unit voice parameters.
+    ini: IniParams,
 }
 
 impl SynthContext {
-    pub fn set_speed(&mut self, speed: i32) {
-        self.params = SynthParams::from_ini(150, speed, 100, 150);
+    /// Sets all engine-unit voice parameters at once.
+    ///
+    /// Use this instead of chained [`set_speed`]/[`set_pitch`]/[`set_volume`]
+    /// calls when changing several parameters together; see
+    /// [`IniParams::from_api`] for mapping the frontend multipliers.
+    ///
+    /// [`set_speed`]: Self::set_speed
+    /// [`set_pitch`]: Self::set_pitch
+    /// [`set_volume`]: Self::set_volume
+    pub const fn set_params(&mut self, params: IniParams) {
+        self.ini = params;
     }
-    pub fn set_pitch(&mut self, pitch: i32) {
-        self.params = SynthParams::from_ini(pitch, 100, 100, 150);
+    pub const fn set_speed(&mut self, speed: i32) {
+        self.ini.speed = speed;
     }
-    pub fn set_volume(&mut self, volume: i32) {
-        self.params = SynthParams::from_ini(150, 100, 100, volume);
+    pub const fn set_pitch(&mut self, pitch: i32) {
+        self.ini.pitch = pitch;
+    }
+    pub const fn set_volume(&mut self, volume: i32) {
+        self.ini.volume = volume;
+    }
+    /// Returns the current engine-unit voice parameters.
+    #[must_use]
+    pub const fn ini_params(&self) -> IniParams {
+        self.ini
+    }
+    /// Returns the engine-unit voice parameters as loaded from
+    /// `InfoDic.wdic`, regardless of what the setters changed since.
+    #[must_use]
+    pub const fn base_ini_params(&self) -> IniParams {
+        self.base
     }
     #[must_use]
-    pub const fn params(&self) -> SynthParams {
-        self.params
+    pub fn params(&self) -> SynthParams {
+        self.ini.params()
     }
     #[must_use]
     pub const fn db_ref(&self) -> &SynthDb {
@@ -299,8 +327,12 @@ pub fn load_synth_db_bytes(mut files: DataMap, gender: &str) -> SynthResult<Synt
         sample_rate: 16000,
         base: PathBuf::from(format!("KSpeechDic/{gender}")),
     };
-    let params = read_ini_params_bytes(&files);
-    Ok(SynthContext { db, params })
+    let base = read_ini_params_bytes(&files);
+    Ok(SynthContext {
+        db,
+        base,
+        ini: base,
+    })
 }
 
 fn take_file(files: &mut DataMap, key: &str) -> SynthResult<Vec<u8>> {
@@ -324,7 +356,7 @@ fn read_codec_mode_bytes(files: &DataMap) -> u8 {
     0
 }
 
-fn read_ini_params_bytes(files: &DataMap) -> SynthParams {
+fn read_ini_params_bytes(files: &DataMap) -> IniParams {
     if let Some(data) = files.get("InfoDic.wdic")
         && let Ok(w) = ktts_dict::wdic::parse(data)
     {
@@ -333,14 +365,14 @@ fn read_ini_params_bytes(files: &DataMap) -> SynthParams {
                 .and_then(|s| s.trim().parse::<i32>().ok())
                 .unwrap_or(def)
         };
-        return SynthParams::from_ini(
-            get("PITCH", 150),
-            get("SPEED", 100),
-            get("VOICE", 100),
-            get("VOLUME", 100),
-        );
+        return IniParams {
+            pitch: get("PITCH", 150),
+            speed: get("SPEED", 100),
+            voice: get("VOICE", 100),
+            volume: get("VOLUME", 150),
+        };
     }
-    SynthParams::defaults()
+    IniParams::defaults()
 }
 
 /// Synthesizes PCM samples for a pronunciation text.
@@ -370,7 +402,7 @@ pub fn synthesize_phrase(ctx: &SynthContext, phrase: &Phrase) -> SynthResult<Vec
         eng_tbl: &ctx.db.eng_tbl,
     };
     let selection = unitselect::select_units(&uctx, phrase);
-    waveform::synthesize_wave(&ctx.db, phrase, &selection, ctx.params)
+    waveform::synthesize_wave(&ctx.db, phrase, &selection, ctx.params())
         .map_err(|e| SynthError::Invalid(e.to_string()))
 }
 

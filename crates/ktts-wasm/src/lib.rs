@@ -413,15 +413,15 @@ impl KttsEngine {
             )?);
         }
 
-        if (speed - 1.0).abs() > 1e-6 {
-            synth.set_speed((100.0 * speed) as i32);
-        }
-        if pitch.abs() > 1e-6 {
-            synth.set_pitch((150.0 * (1.0 + pitch)) as i32);
-        }
-        if (volume - 1.0).abs() > 1e-6 {
-            synth.set_volume((150.0 * volume) as i32);
-        }
+        // One shot: setting the params individually would reset the others.
+        // Params left at their API default keep the InfoDic.wdic values, so
+        // each call is independent of the previous one.
+        synth.set_params(ktts_synth::setting::IniParams::from_api(
+            synth.base_ini_params(),
+            speed,
+            pitch,
+            volume,
+        ));
 
         let synth_input = conv_pron_to_synth(&raw_pron);
         if targets.is_empty() {
