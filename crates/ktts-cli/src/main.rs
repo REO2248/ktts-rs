@@ -20,13 +20,20 @@ use ktts_cli::wav;
 )]
 struct Cli {
     /// dictionary data directory (kttsdb; fallback: $KTTSDB_DIR, then /usr/share/apps/kttsdb)
-    #[expect(clippy::doc_markdown, reason = "env var name rendered literally in --help")]
+    #[expect(
+        clippy::doc_markdown,
+        reason = "env var name rendered literally in --help"
+    )]
     #[arg(short, long)]
     data_dir: Option<PathBuf>,
 
     /// output WAV path (default: write WAV bytes to stdout)
     #[arg(short, long)]
     output: Option<PathBuf>,
+
+    /// synthesis Voice identifier (default: woman)
+    #[arg(long, default_value = ktts_engine::DEFAULT_VOICE)]
+    voice: String,
 
     /// speed multiplier (default: 1.0)
     #[arg(short, long, default_value_t = 1.0)]
@@ -109,7 +116,13 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    match run(&text, data_dir.as_deref(), cli.output.as_deref(), &params) {
+    match run(
+        &text,
+        data_dir.as_deref(),
+        cli.output.as_deref(),
+        &cli.voice,
+        &params,
+    ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e}");
@@ -122,6 +135,7 @@ fn run(
     text: &str,
     data_dir: Option<&Path>,
     output: Option<&Path>,
+    voice: &str,
     params: &VoiceParams,
 ) -> Result<(), PipelineError> {
     if params.speed <= 0.0 {
@@ -135,11 +149,12 @@ fn run(
         ));
     }
 
-    let samples = synthesize_samples(text, data_dir, params)?;
+    let samples = synthesize_samples(text, data_dir, voice, params)?;
     let wav_bytes = wav::build_wav(&samples);
     if let Some(path) = output {
-        std::fs::write(path, &wav_bytes)
-            .map_err(|e| PipelineError::Engine("wav-write", format!("{}: {}", path.display(), e)))?;
+        std::fs::write(path, &wav_bytes).map_err(|e| {
+            PipelineError::Engine("wav-write", format!("{}: {}", path.display(), e))
+        })?;
     } else {
         let mut stdout = std::io::stdout().lock();
         stdout
@@ -155,21 +170,22 @@ fn run(
 fn synthesize_samples(
     text: &str,
     data_dir: Option<&Path>,
+    voice: &str,
     params: &VoiceParams,
 ) -> Result<Vec<i16>, PipelineError> {
     if let Some(dir) = data_dir {
-        let speech_dir = dir.join("KSpeechDic").join(pipeline::VOICE);
+        let speech_dir = dir.join("KSpeechDic").join(voice);
         if !speech_dir.is_dir() {
             return Err(PipelineError::BadParam(format!(
                 "voice data directory not found: {} (set --data-dir or $KTTSDB_DIR)",
                 speech_dir.display()
             )));
         }
-        pipeline::run_pipeline(text, dir, params)
+        pipeline::run_pipeline(text, dir, voice, params)
     } else {
         #[cfg(feature = "embed")]
         {
-            ktts_cli::embedded::synthesize(text, params)
+            ktts_cli::embedded::synthesize(text, voice, params)
         }
         #[cfg(not(feature = "embed"))]
         {
@@ -204,15 +220,15 @@ mod tests {
             resolve_data_dir(Some(Path::new("/cli")), Some("/env")),
             PathBuf::from("/cli")
         );
-        assert_eq!(
-            resolve_data_dir(None, Some("/env")),
-            PathBuf::from("/env")
-        );
+        assert_eq!(resolve_data_dir(None, Some("/env")), PathBuf::from("/env"));
         assert_eq!(
             resolve_data_dir(None, Some("")),
             PathBuf::from(DEFAULT_DATA_DIR)
         );
-        assert_eq!(resolve_data_dir(None, None), PathBuf::from(DEFAULT_DATA_DIR));
+        assert_eq!(
+            resolve_data_dir(None, None),
+            PathBuf::from(DEFAULT_DATA_DIR)
+        );
     }
 
     #[cfg(feature = "embed")]
@@ -253,6 +269,7 @@ mod tests {
     #[test]
     fn voice_params_default_when_absent() {
         let cli = Cli::try_parse_from(["ktts", "-d", "/d", "안녕하세요"]).unwrap();
+        assert_eq!(cli.voice, "woman");
         assert_eq!(cli.speed, 1.0);
         assert_eq!(cli.pitch, 0.0);
         assert_eq!(cli.volume, 1.0);
@@ -261,9 +278,21 @@ mod tests {
     #[test]
     fn parses_voice_params() {
         let cli = Cli::try_parse_from([
-            "ktts", "-d", "/d", "--speed", "1.5", "--pitch", "0.25", "--volume", "0.8", "hi",
+            "ktts",
+            "-d",
+            "/d",
+            "--voice",
+            "future-voice",
+            "--speed",
+            "1.5",
+            "--pitch",
+            "0.25",
+            "--volume",
+            "0.8",
+            "hi",
         ])
         .unwrap();
+        assert_eq!(cli.voice, "future-voice");
         assert_eq!(cli.speed, 1.5);
         assert_eq!(cli.pitch, 0.25);
         assert_eq!(cli.volume, 0.8);
@@ -276,7 +305,13 @@ mod tests {
             ..VoiceParams::default()
         };
         assert!(matches!(
-            run("hi", Some(Path::new("/d")), None, &params),
+            run(
+                "hi",
+                Some(Path::new("/d")),
+                None,
+                ktts_engine::DEFAULT_VOICE,
+                &params,
+            ),
             Err(PipelineError::BadParam(_))
         ));
     }
@@ -288,7 +323,13 @@ mod tests {
             ..VoiceParams::default()
         };
         assert!(matches!(
-            run("hi", Some(Path::new("/d")), None, &params),
+            run(
+                "hi",
+                Some(Path::new("/d")),
+                None,
+                ktts_engine::DEFAULT_VOICE,
+                &params,
+            ),
             Err(PipelineError::BadParam(_))
         ));
     }

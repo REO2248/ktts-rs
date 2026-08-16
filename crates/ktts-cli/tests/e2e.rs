@@ -52,7 +52,7 @@ fn synthesize(text: &str, out: &Path) -> Vec<i16> {
 }
 
 fn synthesize_with(text: &str, params: &VoiceParams, out: &Path) -> Vec<i16> {
-    let samples = run_pipeline(text, &data_dir(), params)
+    let samples = run_pipeline(text, &data_dir(), ktts_engine::DEFAULT_VOICE, params)
         .unwrap_or_else(|e| panic!("pipeline failed ({text}): {e}"));
     assert!(!samples.is_empty(), "synthesis result is empty: {text}");
     let wav = build_wav(&samples);

@@ -6,6 +6,8 @@
 
 use crate::common::{DataMap, DictError, DictResult};
 
+use std::path::Path;
+
 /// Encodes a data map into the blob format, sorted by key.
 ///
 /// # Panics
@@ -39,6 +41,44 @@ pub fn encode(files: &DataMap) -> Vec<u8> {
     out
 }
 
+/// Recursively packs every file below `root` into a deterministic blob.
+///
+/// Keys are paths relative to `root` and always use `/` separators.
+///
+/// # Errors
+///
+/// Returns an error if a directory entry or file cannot be read.
+pub fn encode_dir(root: &Path) -> DictResult<Vec<u8>> {
+    let mut files = DataMap::new();
+    collect_files(root, root, &mut files)?;
+    Ok(encode(&files))
+}
+
+fn collect_files(root: &Path, dir: &Path, files: &mut DataMap) -> DictResult<()> {
+    let entries = std::fs::read_dir(dir).map_err(|error| io_err("read directory", dir, &error))?;
+    for entry in entries {
+        let path = entry
+            .map_err(|error| io_err("read directory entry", dir, &error))?
+            .path();
+        if path.is_dir() {
+            collect_files(root, &path, files)?;
+        } else {
+            let relative = path
+                .strip_prefix(root)
+                .expect("collected paths stay below the root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let data = std::fs::read(&path).map_err(|error| io_err("read file", &path, &error))?;
+            files.insert(relative, data);
+        }
+    }
+    Ok(())
+}
+
+fn io_err(operation: &str, path: &Path, error: &std::io::Error) -> DictError {
+    DictError::new(format!("{operation} {}: {error}", path.display()), 0)
+}
+
 /// Decodes a blob into a data map.
 ///
 /// # Errors
@@ -54,8 +94,7 @@ pub fn decode(blob: &[u8]) -> DictResult<DataMap> {
         let path_len = usize::try_from(read_u32(blob, &mut off)?)
             .map_err(|_| err("path length does not fit usize", off))?;
         let path = read_bytes(blob, &mut off, path_len)?;
-        let path = std::str::from_utf8(path)
-            .map_err(|e| err(format!("invalid key: {e}"), off))?;
+        let path = std::str::from_utf8(path).map_err(|e| err(format!("invalid key: {e}"), off))?;
         let data_len = usize::try_from(read_u64(blob, &mut off)?)
             .map_err(|_| err("data length does not fit usize", off))?;
         let data = read_bytes(blob, &mut off, data_len)?;
@@ -143,5 +182,29 @@ mod tests {
         // Corrupt the first path byte (offset: 4 count + 4 path length).
         blob[8] = 0xff;
         assert!(decode(&blob).is_err());
+    }
+
+    #[test]
+    fn encode_dir_collects_nested_files_with_portable_keys() {
+        let root = std::env::temp_dir().join(format!(
+            "ktts-dict-encode-dir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("KSpeechDic/woman")).expect("create test dirs");
+        std::fs::write(root.join("InfoDic.wdic"), b"info").expect("write root file");
+        std::fs::write(root.join("KSpeechDic/woman/synth.pcm"), b"pcm").expect("write nested file");
+
+        let files = decode(&encode_dir(&root).expect("encode directory")).expect("decode blob");
+
+        assert_eq!(files.get("InfoDic.wdic"), Some(&b"info".to_vec()));
+        assert_eq!(
+            files.get("KSpeechDic/woman/synth.pcm"),
+            Some(&b"pcm".to_vec())
+        );
+        std::fs::remove_dir_all(root).expect("remove test directory");
     }
 }

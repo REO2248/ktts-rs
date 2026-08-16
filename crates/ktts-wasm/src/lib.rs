@@ -11,52 +11,7 @@ pub type DataMap = ktts_dict::common::DataMap;
 pub mod embedded;
 
 pub mod wav {
-    pub const SAMPLE_RATE: u32 = 16000;
-    pub const CHANNELS: u16 = 1;
-    pub const BITS_PER_SAMPLE: u16 = 16;
-
-    #[must_use]
-    /// Builds a WAV file from PCM samples.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the sample count does not fit in `u32`.
-    pub fn build_wav(samples: &[i16]) -> Vec<u8> {
-        let data_len = u32::try_from(samples.len() * 2).expect("WAV data length fits u32");
-        let mut out = Vec::with_capacity(44 + samples.len() * 2);
-        out.extend_from_slice(b"RIFF");
-        out.extend_from_slice(&(36 + data_len).to_le_bytes());
-        out.extend_from_slice(b"WAVE");
-        out.extend_from_slice(b"fmt ");
-        out.extend_from_slice(&16u32.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&CHANNELS.to_le_bytes());
-        out.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-        out.extend_from_slice(
-            &(SAMPLE_RATE * u32::from(CHANNELS) * (u32::from(BITS_PER_SAMPLE) / 8)).to_le_bytes(),
-        );
-        out.extend_from_slice(&(CHANNELS * BITS_PER_SAMPLE / 8).to_le_bytes());
-        out.extend_from_slice(&BITS_PER_SAMPLE.to_le_bytes());
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&data_len.to_le_bytes());
-        for &s in samples {
-            out.extend_from_slice(&s.to_le_bytes());
-        }
-        out
-    }
-
-    #[must_use]
-    pub fn rms(samples: &[i16]) -> f64 {
-        if samples.is_empty() {
-            return 0.0;
-        }
-        let sum: f64 = samples.iter().map(|&s| f64::from(s) * f64::from(s)).sum();
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "sample count to f64 is exact for real audio"
-        )]
-        (sum / samples.len() as f64).sqrt()
-    }
+    pub use ktts_engine::wav::{BITS_PER_SAMPLE, CHANNELS, SAMPLE_RATE, build_wav, rms};
 
     #[must_use]
     pub fn parse_pcm16(bytes: &[u8]) -> Option<Vec<i16>> {
@@ -154,7 +109,7 @@ fn js_to_datamap(files: &JsValue) -> Result<DataMap, JsValue> {
 #[derive(Debug)]
 pub struct KttsEngine {
     engine: Option<ktts_engine::Engine>,
-    gender: String,
+    voice: String,
 }
 
 impl KttsEngine {
@@ -162,7 +117,7 @@ impl KttsEngine {
     pub fn new() -> Self {
         Self {
             engine: None,
-            gender: "woman".to_string(),
+            voice: ktts_engine::DEFAULT_VOICE.to_string(),
         }
     }
 
@@ -176,7 +131,7 @@ impl KttsEngine {
     /// Returns an error if the data is invalid.
     pub fn set_data_impl(&mut self, files: DataMap) -> Result<(), String> {
         self.engine =
-            Some(ktts_engine::Engine::load(files, &self.gender).map_err(|e| e.to_string())?);
+            Some(ktts_engine::Engine::load(files, &self.voice).map_err(|e| e.to_string())?);
         Ok(())
     }
 
@@ -250,13 +205,16 @@ impl KttsEngine {
         Ok(engine)
     }
 
-    pub fn set_gender(&mut self, gender: &str) {
-        self.gender = gender.to_string();
+    pub fn set_voice(&mut self, voice: &str) {
+        if self.voice != voice {
+            self.voice = voice.to_string();
+            self.engine = None;
+        }
     }
 
     #[must_use]
-    pub fn gender(&self) -> String {
-        self.gender.clone()
+    pub fn voice(&self) -> String {
+        self.voice.clone()
     }
 
     /// Loads the dictionary data map (JS object of `Uint8Array` files) into the engine.
@@ -312,10 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn gender_default_woman() {
-        let mut engine = KttsEngine::new();
-        assert_eq!(engine.gender(), "woman");
-        engine.set_gender("man");
-        assert_eq!(engine.gender(), "man");
+    fn voice_defaults_to_woman() {
+        assert_eq!(KttsEngine::new().voice(), ktts_engine::DEFAULT_VOICE);
     }
 }

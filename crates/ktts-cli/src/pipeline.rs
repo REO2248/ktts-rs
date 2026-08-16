@@ -4,8 +4,6 @@ use ktts_engine::{DataMap, Engine};
 
 use crate::types::{PipelineError, VoiceParams};
 
-pub const VOICE: &str = "woman";
-
 /// Builds a data map from a kttsdb directory.
 ///
 /// # Errors
@@ -43,9 +41,10 @@ pub fn load_datamap(data_dir: &Path) -> Result<DataMap, PipelineError> {
 pub fn run_pipeline(
     text: &str,
     data_dir: &Path,
+    voice: &str,
     params: &VoiceParams,
 ) -> Result<Vec<i16>, PipelineError> {
-    run_pipeline_files(text, load_datamap(data_dir)?, params)
+    run_pipeline_files(text, load_datamap(data_dir)?, voice, params)
 }
 
 /// Synthesizes text from a pre-loaded dictionary map.
@@ -56,9 +55,10 @@ pub fn run_pipeline(
 pub fn run_pipeline_files(
     text: &str,
     files: DataMap,
+    voice: &str,
     params: &VoiceParams,
 ) -> Result<Vec<i16>, PipelineError> {
-    Engine::load(files, VOICE)?.synthesize(text, params)
+    Engine::load(files, voice)?.synthesize(text, params)
 }
 
 #[cfg(test)]
@@ -70,6 +70,7 @@ mod tests {
         let err = run_pipeline(
             "안녕하세요",
             Path::new("/nonexistent"),
+            ktts_engine::DEFAULT_VOICE,
             &VoiceParams::default(),
         )
         .unwrap_err();

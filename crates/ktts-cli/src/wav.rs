@@ -1,36 +1,4 @@
-pub const SAMPLE_RATE: u32 = 16000;
-pub const CHANNELS: u16 = 1;
-pub const BITS_PER_SAMPLE: u16 = 16;
-
-/// Builds a WAV file from PCM samples.
-///
-/// # Panics
-///
-/// Panics if the sample count does not fit in `u32`.
-#[must_use]
-pub fn build_wav(samples: &[i16]) -> Vec<u8> {
-    let data_len = u32::try_from(samples.len() * 2).expect("WAV data length fits u32");
-    let mut out = Vec::with_capacity(44 + samples.len() * 2);
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data_len).to_le_bytes());
-    out.extend_from_slice(b"WAVE");
-    out.extend_from_slice(b"fmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&CHANNELS.to_le_bytes());
-    out.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-    out.extend_from_slice(
-        &(SAMPLE_RATE * u32::from(CHANNELS) * (u32::from(BITS_PER_SAMPLE) / 8)).to_le_bytes(),
-    );
-    out.extend_from_slice(&(CHANNELS * BITS_PER_SAMPLE / 8).to_le_bytes());
-    out.extend_from_slice(&BITS_PER_SAMPLE.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data_len.to_le_bytes());
-    for &s in samples {
-        out.extend_from_slice(&s.to_le_bytes());
-    }
-    out
-}
+pub use ktts_engine::wav::{BITS_PER_SAMPLE, CHANNELS, SAMPLE_RATE, build_wav, rms};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WavInfo {
@@ -70,19 +38,6 @@ pub fn parse_wav_header(bytes: &[u8]) -> Option<WavInfo> {
         data_len,
         data_offset: 44,
     })
-}
-
-#[must_use]
-pub fn rms(samples: &[i16]) -> f64 {
-    if samples.is_empty() {
-        return 0.0;
-    }
-    let sum: f64 = samples.iter().map(|&s| f64::from(s) * f64::from(s)).sum();
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "sample count to f64 is exact for real audio"
-    )]
-    (sum / samples.len() as f64).sqrt()
 }
 
 #[cfg(test)]

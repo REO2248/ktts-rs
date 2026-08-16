@@ -16,13 +16,16 @@ static KTT_SDB_BLOB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/kttsdb.bl
 /// # Errors
 ///
 /// Returns an error if the embedded blob is malformed or an engine stage fails.
-pub fn synthesize(text: &str, params: &VoiceParams) -> Result<Vec<i16>, PipelineError> {
+pub fn synthesize(
+    text: &str,
+    voice: &str,
+    params: &VoiceParams,
+) -> Result<Vec<i16>, PipelineError> {
     let files = datamap()?;
-    pipeline::run_pipeline_files(text, files, params)
+    pipeline::run_pipeline_files(text, files, voice, params)
 }
 
 /// Parses the embedded blob into a data map.
 fn datamap() -> Result<DataMap, PipelineError> {
-    ktts_dict::blob::decode(KTT_SDB_BLOB)
-        .map_err(|e| PipelineError::Engine("embed", e.to_string()))
+    ktts_dict::blob::decode(KTT_SDB_BLOB).map_err(|e| PipelineError::Engine("embed", e.to_string()))
 }

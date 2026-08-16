@@ -199,13 +199,13 @@ impl SynthContext {
     }
 }
 
-/// Loads the synthesis database for a gender from a directory.
+/// Loads the synthesis database for a Voice from a directory.
 ///
 /// # Errors
 ///
 /// Returns an error if the input is invalid.
-pub fn load_synth_db(dir: &Path, gender: &str) -> SynthResult<SynthContext> {
-    let d = dir.join(gender);
+pub fn load_synth_db(dir: &Path, voice: &str) -> SynthResult<SynthContext> {
+    let d = dir.join(voice);
     if !d.is_dir() {
         return Err(SynthError::Invalid(format!(
             "voice DB directory does not exist: {}",
@@ -234,7 +234,7 @@ pub fn load_synth_db(dir: &Path, gender: &str) -> SynthResult<SynthContext> {
         "synth-num_bin.pcm",
         "synth-num_bin.upm",
     ] {
-        add(&format!("KSpeechDic/{gender}/{name}"), &d.join(name));
+        add(&format!("KSpeechDic/{voice}/{name}"), &d.join(name));
     }
     let pec = dir.join("p_e_c");
     add("KSpeechDic/p_e_c/pitch.tbl", &pec.join("pitch.tbl"));
@@ -245,12 +245,12 @@ pub fn load_synth_db(dir: &Path, gender: &str) -> SynthResult<SynthContext> {
         dir.parent().unwrap_or(dir).join("InfoDic.wdic")
     };
     add("InfoDic.wdic", &wdic);
-    let mut ctx = load_synth_db_bytes(files, gender)?;
+    let mut ctx = load_synth_db_bytes(files, voice)?;
     ctx.db.base = dir.to_path_buf();
     Ok(ctx)
 }
 
-/// Loads the synthesis database for a gender from a data map.
+/// Loads the synthesis database for a Voice from a data map.
 ///
 /// Consumes the map: the (large) PCM/UPM blobs are moved out of it instead of
 /// being cloned, so the caller's peak memory is roughly halved. The map is
@@ -259,15 +259,15 @@ pub fn load_synth_db(dir: &Path, gender: &str) -> SynthResult<SynthContext> {
 /// # Errors
 ///
 /// Returns an error if the input is invalid.
-pub fn load_synth_db_bytes(mut files: DataMap, gender: &str) -> SynthResult<SynthContext> {
+pub fn load_synth_db_bytes(mut files: DataMap, voice: &str) -> SynthResult<SynthContext> {
     let idx = parse_idx(&take_file(
         &mut files,
-        &format!("KSpeechDic/{gender}/synth.idx"),
+        &format!("KSpeechDic/{voice}/synth.idx"),
     )?)
     .map_err(|e| SynthError::Parse(e.to_string()))?;
     let groups = parse_group_idx(&take_file(
         &mut files,
-        &format!("KSpeechDic/{gender}/synth_group.idx"),
+        &format!("KSpeechDic/{voice}/synth_group.idx"),
     )?)
     .map_err(|e| SynthError::Parse(e.to_string()))?;
     let pitch_tbl = parse_triangular_table(&take_file(&mut files, "KSpeechDic/p_e_c/pitch.tbl")?)
@@ -282,15 +282,15 @@ pub fn load_synth_db_bytes(mut files: DataMap, gender: &str) -> SynthResult<Synt
     };
     let mut pcm_files: Vec<Option<Vec<u8>>> = Vec::with_capacity(3);
     for name in pcm_names {
-        pcm_files.push(files.remove(&format!("KSpeechDic/{gender}/{name}")));
+        pcm_files.push(files.remove(&format!("KSpeechDic/{voice}/{name}")));
     }
     let mut upm_files: Vec<Option<Vec<u8>>> = Vec::with_capacity(3);
     for name in upm_names {
-        upm_files.push(files.remove(&format!("KSpeechDic/{gender}/{name}")));
+        upm_files.push(files.remove(&format!("KSpeechDic/{voice}/{name}")));
     }
     let pcm0 = pcm_files[0].as_ref().ok_or_else(|| {
         SynthError::Invalid(format!(
-            "cannot open synth.pcm: KSpeechDic/{gender}/synth.pcm"
+            "cannot open synth.pcm: KSpeechDic/{voice}/synth.pcm"
         ))
     })?;
     if pcm0.len() < 2 {
@@ -308,7 +308,7 @@ pub fn load_synth_db_bytes(mut files: DataMap, gender: &str) -> SynthResult<Synt
         upm_files,
         codec_mode,
         sample_rate: 16000,
-        base: PathBuf::from(format!("KSpeechDic/{gender}")),
+        base: PathBuf::from(format!("KSpeechDic/{voice}")),
     };
     let base = read_ini_params_bytes(&files);
     Ok(SynthContext { db, base })

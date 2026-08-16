@@ -53,7 +53,7 @@ impl ProsodyContext {
 ///
 /// Returns an error if a dictionary file is missing or malformed.
 pub fn load_prosody_dicts(dir: &Path) -> ProsodyResult<ProsodyContext> {
-    let gender = dir
+    let voice = dir
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("speaker")
@@ -61,10 +61,10 @@ pub fn load_prosody_dicts(dir: &Path) -> ProsodyResult<ProsodyContext> {
     let mut files: DataMap = std::collections::HashMap::new();
     for rel in PROSODY_DICT_FILE_RELS {
         if let Ok(data) = std::fs::read(dir.join(rel)) {
-            files.insert(format!("KSpeechDic/{gender}/{rel}"), data);
+            files.insert(format!("KSpeechDic/{voice}/{rel}"), data);
         }
     }
-    load_prosody_dicts_bytes(&files, &gender)
+    load_prosody_dicts_bytes(&files, &voice)
 }
 
 /// Loads the prosody dictionaries from a data map.
@@ -72,8 +72,8 @@ pub fn load_prosody_dicts(dir: &Path) -> ProsodyResult<ProsodyContext> {
 /// # Errors
 ///
 /// Returns an error if a dictionary file is missing or malformed.
-pub fn load_prosody_dicts_bytes(files: &DataMap, gender: &str) -> ProsodyResult<ProsodyContext> {
-    load_bytes_inner(files, &format!("KSpeechDic/{gender}/"))
+pub fn load_prosody_dicts_bytes(files: &DataMap, voice: &str) -> ProsodyResult<ProsodyContext> {
+    load_bytes_inner(files, &format!("KSpeechDic/{voice}/"))
 }
 
 fn load_bytes_inner(files: &DataMap, prefix: &str) -> ProsodyResult<ProsodyContext> {

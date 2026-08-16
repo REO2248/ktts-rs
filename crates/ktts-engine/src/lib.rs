@@ -1,14 +1,15 @@
 #[allow(unreachable_pub, reason = "pipeline carriers stay behind Engine")]
 mod types;
 
+pub mod wav;
+
 pub use types::{PipelineError, VoiceParams};
 
 use types::{Morph, PronSyllable, PronText, SyllableTarget, WordAnal, WordMorphInfo};
 
 pub type DataMap = ktts_dict::common::DataMap;
 
-#[cfg(test)]
-pub const VOICE: &str = "woman";
+pub const DEFAULT_VOICE: &str = "woman";
 
 /// Loaded KMA → pronunciation → prosody → synthesis pipeline.
 #[derive(Debug)]
@@ -385,7 +386,7 @@ mod tests {
 
     #[test]
     fn engine_load_reports_the_failing_stage() {
-        let Err(err) = Engine::load(DataMap::new(), VOICE) else {
+        let Err(err) = Engine::load(DataMap::new(), DEFAULT_VOICE) else {
             panic!("empty dictionary map unexpectedly loaded");
         };
         assert!(
@@ -690,11 +691,28 @@ mod tests {
     }
 
     fn run_stages(text: &str) -> (Vec<WordAnal>, PronText, Vec<SyllableTarget>) {
-        let engine = Engine::load(test_files(), VOICE).expect("engine");
+        let engine = Engine::load(test_files(), DEFAULT_VOICE).expect("engine");
         let words = stage_kma(text, &engine.kma).expect("kma");
         let pron = stage_pron(&words, &engine.pron).expect("pron");
         let targets = stage_prosody(&pron, &words, &engine.prosody).expect("prosody");
         (words, pron, targets)
+    }
+
+    #[test]
+    #[ignore = "requires real dictionary data in KTTSDB_DIR"]
+    fn engine_loads_an_unlisted_voice_identifier_when_its_data_exists() {
+        const VOICE: &str = "future-voice";
+        let mut files = test_files();
+        let voice_files: Vec<_> = files
+            .iter()
+            .filter_map(|(path, data)| {
+                path.strip_prefix("KSpeechDic/woman/")
+                    .map(|relative| (format!("KSpeechDic/{VOICE}/{relative}"), data.clone()))
+            })
+            .collect();
+        files.extend(voice_files);
+
+        Engine::load(files, VOICE).expect("an available non-default Voice must load");
     }
 
     fn word_end_boundaries(pron: &PronText, targets: &[SyllableTarget]) -> Vec<u8> {

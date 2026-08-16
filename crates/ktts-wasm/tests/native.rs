@@ -74,6 +74,18 @@ fn new_loaded_engine() -> KttsEngine {
     engine
 }
 
+#[test]
+fn changing_voice_invalidates_the_loaded_engine() {
+    let mut engine = new_loaded_engine();
+    engine.set_voice("future-voice");
+    assert_eq!(engine.voice(), "future-voice");
+    assert!(!engine.is_ready());
+    let err = engine
+        .synthesize_impl("안녕하세요", 1.0, 0.0, 1.0)
+        .unwrap_err();
+    assert!(err.contains("set_data"), "got: {err}");
+}
+
 fn assert_valid_wav(wav: &[u8], label: &str) {
     assert!(
         wav.len() >= 44,

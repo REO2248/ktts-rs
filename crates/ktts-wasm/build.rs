@@ -9,10 +9,9 @@
 use std::env;
 use std::fs;
 use std::io::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use ktts_dict::blob;
-use ktts_dict::common::DataMap;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -30,35 +29,15 @@ fn main() {
     );
     println!("cargo:rerun-if-changed={}", root.display());
 
-    let mut files: DataMap = DataMap::new();
-    collect_files(&root, &root, &mut files);
-
-    let blob = blob::encode(&files);
+    let blob = blob::encode_dir(&root).expect("pack dictionary directory");
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("kttsdb.blob");
     fs::File::create(&out)
         .expect("create kttsdb.blob")
         .write_all(&blob)
         .expect("write kttsdb.blob");
     eprintln!(
-        "ktts-wasm(embed): packed {} files ({} bytes) from {}",
-        files.len(),
+        "ktts-wasm(embed): packed {} bytes from {}",
         blob.len(),
         root.display()
     );
-}
-
-fn collect_files(root: &Path, dir: &Path, out: &mut DataMap) {
-    for entry in fs::read_dir(dir).expect("read_dir") {
-        let path = entry.expect("read_dir entry").path();
-        if path.is_dir() {
-            collect_files(root, &path, out);
-        } else {
-            let rel = path
-                .strip_prefix(root)
-                .expect("paths are walked under the data root")
-                .to_string_lossy()
-                .replace('\\', "/");
-            out.insert(rel, fs::read(&path).expect("read dictionary file"));
-        }
-    }
 }
