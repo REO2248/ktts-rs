@@ -216,6 +216,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ktts-dict",
+ "ktts-engine",
  "ktts-kma",
  "ktts-pron",
  "ktts-prosody",
@@ -225,6 +226,17 @@ dependencies = [
 [[package]]
 name = "ktts-dict"
 version = "0.1.0"
+
+[[package]]
+name = "ktts-engine"
+version = "0.1.0"
+dependencies = [
+ "ktts-dict",
+ "ktts-kma",
+ "ktts-pron",
+ "ktts-prosody",
+ "ktts-synth",
+]
 
 [[package]]
 name = "ktts-kma"
@@ -262,10 +274,7 @@ version = "0.1.0"
 dependencies = [
  "js-sys",
  "ktts-dict",
- "ktts-kma",
- "ktts-pron",
- "ktts-prosody",
- "ktts-synth",
+ "ktts-engine",
  "sha2",
  "wasm-bindgen",
 ]

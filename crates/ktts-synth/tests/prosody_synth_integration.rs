@@ -7,7 +7,7 @@
     clippy::cast_precision_loss,
     reason = "test fixtures: oracle values converted with intentional casts"
 )]
-use ktts_synth::{context, pron::PronText, prosody::SyllableTarget};
+use ktts_synth::{PronSyllable, PronText, SyllableTarget};
 
 fn speech_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(
@@ -24,8 +24,8 @@ fn synth_dir() -> std::path::PathBuf {
     .join("KSpeechDic")
 }
 
-fn syl(cvc: [u8; 3], word_idx: usize) -> ktts_synth::pron::PronSyllable {
-    ktts_synth::pron::PronSyllable {
+fn syl(cvc: [u8; 3], word_idx: usize) -> PronSyllable {
+    PronSyllable {
         cvc: String::from_utf8(cvc.to_vec()).unwrap(),
         word_idx,
         is_word_start: word_idx == 0,
@@ -107,7 +107,7 @@ fn prosody_to_synth_ave_length_chain() {
     assert!(targets[2].ave_length[0] > 0);
     assert_eq!(targets[2].ave_length[2], 0);
 
-    let mut sctx = ktts_synth::load_synth_db(&synth_dir(), "woman").expect("synth DB");
+    let sctx = ktts_synth::load_synth_db(&synth_dir(), "woman").expect("synth DB");
     let st: Vec<SyllableTarget> = targets
         .iter()
         .map(|t| SyllableTarget {
@@ -123,13 +123,4 @@ fn prosody_to_synth_ave_length_chain() {
     assert!(rms(&pcm) > 0.0);
     let peak = pcm.iter().map(|&s| s.abs()).max().unwrap_or(0);
     assert!(peak > 500, "peak {peak} too small");
-
-    let phrase = context::build_phrase(&hello_pron(), &st).expect("build_phrase");
-    for (i, l) in phrase.letters.iter().enumerate() {
-        assert_eq!(
-            l.ave_length, st[i].ave_length,
-            "letter[{i}] ave_length does not match target"
-        );
-    }
-    let _ = &mut sctx;
 }

@@ -1,16 +1,43 @@
-pub mod codec;
-pub mod consts;
-pub mod context;
-pub mod pron;
-pub mod prosody;
-pub mod setting;
-pub mod tables;
+#[allow(
+    dead_code,
+    unreachable_pub,
+    reason = "ported engine implementation stays internal"
+)]
+mod codec;
+#[allow(
+    dead_code,
+    unreachable_pub,
+    reason = "ported engine implementation stays internal"
+)]
+mod consts;
+#[allow(
+    unreachable_pub,
+    reason = "ported engine implementation stays internal"
+)]
+mod context;
+#[allow(unreachable_pub, reason = "voice engine units stay behind the facade")]
+mod setting;
+#[allow(
+    unreachable_pub,
+    reason = "ported engine implementation stays internal"
+)]
+mod tables;
 mod types;
 
 #[cfg(test)]
 use ktts_prosody as _;
-pub mod unitselect;
-pub mod waveform;
+#[allow(
+    dead_code,
+    unreachable_pub,
+    reason = "ported engine implementation stays internal"
+)]
+mod unitselect;
+#[allow(
+    dead_code,
+    unreachable_pub,
+    reason = "ported engine implementation stays internal"
+)]
+mod waveform;
 
 use std::path::{Path, PathBuf};
 
@@ -21,7 +48,7 @@ use ktts_dict::synthdb::{
 use setting::{IniParams, SynthParams};
 use unitselect::BestPhone;
 
-pub use types::{PronSyllable, PronText, SyllableTarget};
+pub use types::{PronSyllable, PronText, SyllableTarget, VoiceParams};
 
 pub type DataMap = ktts_dict::common::DataMap;
 
@@ -53,15 +80,15 @@ impl From<std::io::Error> for SynthError {
 pub type SynthResult<T> = Result<T, SynthError>;
 
 #[derive(Debug)]
-pub struct SynthDb {
-    pub idx: SynthIdx,
-    pub groups: SynthGroupIdx,
-    pub pitch_tbl: ktts_dict::synthdb::TriangularTable,
-    pub eng_tbl: ktts_dict::synthdb::TriangularTable,
+struct SynthDb {
+    idx: SynthIdx,
+    groups: SynthGroupIdx,
+    pitch_tbl: ktts_dict::synthdb::TriangularTable,
+    eng_tbl: ktts_dict::synthdb::TriangularTable,
     pcm_files: Vec<Option<Vec<u8>>>,
     upm_files: Vec<Option<Vec<u8>>>,
-    pub codec_mode: u8,
-    pub sample_rate: u32,
+    codec_mode: u8,
+    sample_rate: u32,
     base: PathBuf,
 }
 
@@ -76,7 +103,7 @@ impl SynthDb {
     /// # Errors
     ///
     /// Returns an error if the input is invalid.
-    pub fn rec(&self, bp: &BestPhone) -> SynthResult<&PhoneDict> {
+    fn rec(&self, bp: BestPhone) -> SynthResult<&PhoneDict> {
         self.idx
             .units
             .get(bp.unit_no as usize)
@@ -98,7 +125,7 @@ impl SynthDb {
     /// # Errors
     ///
     /// Returns an error if the input is invalid.
-    pub fn pcm_segment(&self, rec: &PhoneDict) -> SynthResult<Vec<i16>> {
+    fn pcm_segment(&self, rec: &PhoneDict) -> SynthResult<Vec<i16>> {
         let data = self
             .pcm_files
             .get(rec.ch_dict_file_id as usize)
@@ -152,66 +179,22 @@ impl SynthDb {
             ))
         })
     }
-    #[must_use]
-    pub fn base_dir(&self) -> &Path {
-        &self.base
-    }
-    #[must_use]
-    pub const fn db_ref(&self) -> &Self {
-        self
-    }
 }
 
 #[derive(Debug)]
 pub struct SynthContext {
     db: SynthDb,
-    /// Engine-unit voice parameters as loaded from `InfoDic.wdic`; the base
-    /// that the setters override. Never modified after load, so repeated
-    /// `set_params` calls stay independent of each other.
+    /// Engine-unit voice parameters loaded from `InfoDic.wdic`.
     base: IniParams,
-    /// Current engine-unit voice parameters.
-    ini: IniParams,
 }
 
 impl SynthContext {
-    /// Sets all engine-unit voice parameters at once.
-    ///
-    /// Use this instead of chained [`set_speed`]/[`set_pitch`]/[`set_volume`]
-    /// calls when changing several parameters together; see
-    /// [`IniParams::from_api`] for mapping the frontend multipliers.
-    ///
-    /// [`set_speed`]: Self::set_speed
-    /// [`set_pitch`]: Self::set_pitch
-    /// [`set_volume`]: Self::set_volume
-    pub const fn set_params(&mut self, params: IniParams) {
-        self.ini = params;
+    fn params(&self, params: VoiceParams) -> SynthParams {
+        IniParams::from_api(self.base, params).params()
     }
-    pub const fn set_speed(&mut self, speed: i32) {
-        self.ini.speed = speed;
-    }
-    pub const fn set_pitch(&mut self, pitch: i32) {
-        self.ini.pitch = pitch;
-    }
-    pub const fn set_volume(&mut self, volume: i32) {
-        self.ini.volume = volume;
-    }
-    /// Returns the current engine-unit voice parameters.
+    #[cfg(test)]
     #[must_use]
-    pub const fn ini_params(&self) -> IniParams {
-        self.ini
-    }
-    /// Returns the engine-unit voice parameters as loaded from
-    /// `InfoDic.wdic`, regardless of what the setters changed since.
-    #[must_use]
-    pub const fn base_ini_params(&self) -> IniParams {
-        self.base
-    }
-    #[must_use]
-    pub fn params(&self) -> SynthParams {
-        self.ini.params()
-    }
-    #[must_use]
-    pub const fn db_ref(&self) -> &SynthDb {
+    const fn db_ref(&self) -> &SynthDb {
         &self.db
     }
 }
@@ -328,11 +311,7 @@ pub fn load_synth_db_bytes(mut files: DataMap, gender: &str) -> SynthResult<Synt
         base: PathBuf::from(format!("KSpeechDic/{gender}")),
     };
     let base = read_ini_params_bytes(&files);
-    Ok(SynthContext {
-        db,
-        base,
-        ini: base,
-    })
+    Ok(SynthContext { db, base })
 }
 
 fn take_file(files: &mut DataMap, key: &str) -> SynthResult<Vec<u8>> {
@@ -385,16 +364,32 @@ pub fn synthesize(
     text: &PronText,
     targets: &[SyllableTarget],
 ) -> SynthResult<Vec<i16>> {
-    let phrase = context::build_phrase(text, targets).map_err(SynthError::Invalid)?;
-    synthesize_phrase(ctx, &phrase)
+    synthesize_with_params(ctx, text, targets, VoiceParams::default())
 }
 
-/// Synthesizes PCM samples for a prebuilt phrase.
+/// Synthesizes PCM samples with frontend voice controls.
+///
+/// Voice database defaults, engine-unit conversion, and clamping stay inside
+/// this module, and the context is not mutated between calls.
 ///
 /// # Errors
 ///
 /// Returns an error if the input is invalid.
-pub fn synthesize_phrase(ctx: &SynthContext, phrase: &Phrase) -> SynthResult<Vec<i16>> {
+pub fn synthesize_with_params(
+    ctx: &SynthContext,
+    text: &PronText,
+    targets: &[SyllableTarget],
+    params: VoiceParams,
+) -> SynthResult<Vec<i16>> {
+    let phrase = context::build_phrase(text, targets).map_err(SynthError::Invalid)?;
+    synthesize_phrase_with_params(ctx, &phrase, ctx.params(params))
+}
+
+fn synthesize_phrase_with_params(
+    ctx: &SynthContext,
+    phrase: &Phrase,
+    params: SynthParams,
+) -> SynthResult<Vec<i16>> {
     let uctx = unitselect::SynthCtx {
         idx: &ctx.db.idx,
         groups: &ctx.db.groups,
@@ -402,7 +397,7 @@ pub fn synthesize_phrase(ctx: &SynthContext, phrase: &Phrase) -> SynthResult<Vec
         eng_tbl: &ctx.db.eng_tbl,
     };
     let selection = unitselect::select_units(&uctx, phrase);
-    waveform::synthesize_wave(&ctx.db, phrase, &selection, ctx.params())
+    waveform::synthesize_wave(&ctx.db, phrase, &selection, params)
         .map_err(|e| SynthError::Invalid(e.to_string()))
 }
 
@@ -459,6 +454,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires real dictionary data in KTTSDB_DIR"]
     fn load_bytes_equiv_path_load() {
         let dir = data_dir();
         let c1 = load_synth_db(&dir, "woman").expect("path load");
@@ -501,7 +497,10 @@ mod tests {
 
         assert_eq!(c1.db_ref().codec_mode, c2.db_ref().codec_mode);
         assert_eq!(c1.db_ref().sample_rate, c2.db_ref().sample_rate);
-        assert_eq!(c1.params(), c2.params());
+        assert_eq!(
+            c1.params(VoiceParams::default()),
+            c2.params(VoiceParams::default())
+        );
         assert_eq!(c1.db_ref().idx, c2.db_ref().idx);
         assert_eq!(c1.db_ref().groups, c2.db_ref().groups);
         assert_eq!(c1.db_ref().pitch_tbl, c2.db_ref().pitch_tbl);

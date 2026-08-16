@@ -21,3 +21,21 @@ pub struct SyllableTarget {
     pub tobi: f32,
     pub boundary: u8,
 }
+
+/// Frontend voice controls. Default values preserve the voice database settings.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VoiceParams {
+    pub speed: f32,
+    pub pitch: f32,
+    pub volume: f32,
+}
+
+impl Default for VoiceParams {
+    fn default() -> Self {
+        Self {
+            speed: 1.0,
+            pitch: 0.0,
+            volume: 1.0,
+        }
+    }
+}

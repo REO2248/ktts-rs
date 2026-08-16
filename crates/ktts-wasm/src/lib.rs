@@ -123,141 +123,6 @@ pub mod wav {
     }
 }
 
-fn conv_kma_word(w: ktts_kma::WordAnal) -> ktts_pron::kma_types::WordAnal {
-    ktts_pron::kma_types::WordAnal {
-        morphs: w
-            .morphs
-            .into_iter()
-            .map(|m| ktts_pron::kma_types::Morph {
-                cvc: m.cvc,
-                pos: m.pos,
-                prob: m.prob,
-                surface_len: m.surface_len,
-            })
-            .collect(),
-        w_byte_num: w.w_byte_num as usize,
-        word_cvc: w.word_cvc,
-        source: w.source,
-        b_word_sen: w.b_word_sen,
-    }
-}
-
-#[cfg(test)]
-fn conv_pron_to_prosody(p: &ktts_pron::PronText) -> ktts_prosody::PronText {
-    let syllables = p
-        .syllables
-        .iter()
-        .map(|s| {
-            let mut cvc = [1u8; 3];
-            let n = s.cvc.len().min(3);
-            cvc[..n].copy_from_slice(&s.cvc[..n]);
-            ktts_prosody::PronSyllable {
-                cvc,
-                word_idx: s.word_idx,
-                is_word_start: s.is_word_start,
-                pos: s.pos[0],
-                morph_idx: s.morph_idx,
-                morph_pos: s.morph_pos,
-            }
-        })
-        .collect();
-    ktts_prosody::PronText {
-        syllables,
-        phoneme_codes: p.phoneme_codes.clone(),
-        word_morphs: p
-            .word_morphs
-            .iter()
-            .map(|w| ktts_prosody::WordMorphs {
-                pos: w.pos.clone(),
-                first_chars: w.first_chars.clone(),
-                surfaces: w.surfaces.clone(),
-                source: w.source.clone(),
-            })
-            .collect(),
-        word_sen: vec![],
-    }
-}
-
-fn conv_pron_to_synth(p: &ktts_pron::PronText) -> ktts_synth::PronText {
-    let syllables: Vec<ktts_synth::PronSyllable> = p
-        .syllables
-        .iter()
-        .map(|s| ktts_synth::PronSyllable {
-            cvc: s.cvc.iter().map(|&b| b as char).collect(),
-            word_idx: s.word_idx,
-            is_word_start: s.is_word_start,
-            pos: s.pos[0],
-        })
-        .collect();
-    ktts_synth::PronText {
-        syllables,
-        phoneme_codes: p.phoneme_codes.clone(),
-        word_sen: vec![],
-    }
-}
-
-fn prosody_sentence(
-    prosody: &ktts_prosody::ProsodyContext,
-    pron: &ktts_pron::PronText,
-    word_sen: &[u8],
-    w_start: usize,
-    w_end: usize,
-) -> Result<Vec<ktts_synth::SyllableTarget>, String> {
-    let syllables: Vec<ktts_prosody::PronSyllable> = pron
-        .syllables
-        .iter()
-        .filter(|s| s.word_idx >= w_start && s.word_idx <= w_end)
-        .map(|s| {
-            let mut cvc = [1u8; 3];
-            let n = s.cvc.len().min(3);
-            cvc[..n].copy_from_slice(&s.cvc[..n]);
-            ktts_prosody::PronSyllable {
-                cvc,
-                word_idx: s.word_idx - w_start,
-                is_word_start: s.is_word_start,
-                pos: s.pos[0],
-                morph_idx: s.morph_idx,
-                morph_pos: s.morph_pos,
-            }
-        })
-        .collect();
-    let word_morphs = pron
-        .word_morphs
-        .get(w_start..=w_end)
-        .map(|wm| {
-            wm.iter()
-                .map(|w| ktts_prosody::WordMorphs {
-                    pos: w.pos.clone(),
-                    first_chars: w.first_chars.clone(),
-                    surfaces: w.surfaces.clone(),
-                    source: w.source.clone(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let sub = ktts_prosody::PronText {
-        syllables,
-        phoneme_codes: vec![],
-        word_morphs,
-        word_sen: word_sen
-            .get(w_start..=w_end)
-            .map(<[u8]>::to_vec)
-            .unwrap_or_default(),
-    };
-    let raw = ktts_prosody::prosody(prosody, &sub).map_err(|e| format!("prosody: {e}"))?;
-    Ok(raw.into_iter().map(conv_target_to_synth).collect())
-}
-
-const fn conv_target_to_synth(t: ktts_prosody::SyllableTarget) -> ktts_synth::SyllableTarget {
-    ktts_synth::SyllableTarget {
-        dur: t.dur,
-        ave_length: t.ave_length,
-        f0: t.f0,
-        tobi: t.tobi,
-        boundary: t.boundary,
-    }
-}
-
 fn js_to_datamap(files: &JsValue) -> Result<DataMap, JsValue> {
     use wasm_bindgen::JsCast;
 
@@ -288,10 +153,7 @@ fn js_to_datamap(files: &JsValue) -> Result<DataMap, JsValue> {
 #[wasm_bindgen]
 #[derive(Debug)]
 pub struct KttsEngine {
-    kma: Option<ktts_kma::KmaContext>,
-    pron: Option<ktts_pron::PronContext>,
-    prosody: Option<ktts_prosody::ProsodyContext>,
-    synth: Option<ktts_synth::SynthContext>,
+    engine: Option<ktts_engine::Engine>,
     gender: String,
 }
 
@@ -299,10 +161,7 @@ impl KttsEngine {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            kma: None,
-            pron: None,
-            prosody: None,
-            synth: None,
+            engine: None,
             gender: "woman".to_string(),
         }
     }
@@ -316,18 +175,8 @@ impl KttsEngine {
     ///
     /// Returns an error if the data is invalid.
     pub fn set_data_impl(&mut self, files: DataMap) -> Result<(), String> {
-        let kma = ktts_kma::load_kma_dicts_bytes(&files)
-            .map_err(|e| format!("ktts-kma: load_kma_dicts_bytes: {e}"))?;
-        let pron = ktts_pron::load_pron_dicts_bytes(&files)
-            .map_err(|e| format!("ktts-pron: load_pron_dicts_bytes: {e}"))?;
-        let prosody = ktts_prosody::load_prosody_dicts_bytes(&files, &self.gender)
-            .map_err(|e| format!("ktts-prosody: load_prosody_dicts_bytes: {e}"))?;
-        let synth = ktts_synth::load_synth_db_bytes(files, &self.gender)
-            .map_err(|e| format!("ktts-synth: load_synth_db_bytes: {e}"))?;
-        self.kma = Some(kma);
-        self.pron = Some(pron);
-        self.prosody = Some(prosody);
-        self.synth = Some(synth);
+        self.engine =
+            Some(ktts_engine::Engine::load(files, &self.gender).map_err(|e| e.to_string())?);
         Ok(())
     }
 
@@ -347,10 +196,6 @@ impl KttsEngine {
     /// # Errors
     ///
     /// Returns an error if the engine is not loaded or synthesis fails.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "C port: sentence marker byte truncation; param scaling to engine units"
-    )]
     pub fn synthesize_impl(
         &mut self,
         text: &str,
@@ -358,77 +203,20 @@ impl KttsEngine {
         pitch: f32,
         volume: f32,
     ) -> Result<Vec<u8>, String> {
-        let kma = self
-            .kma
+        let engine = self
+            .engine
             .as_ref()
-            .ok_or_else(|| "set_data not called (kma)".to_string())?;
-        let pron = self
-            .pron
-            .as_ref()
-            .ok_or_else(|| "set_data not called (pron)".to_string())?;
-        let prosody = self
-            .prosody
-            .as_ref()
-            .ok_or_else(|| "set_data not called (prosody)".to_string())?;
-        let synth = self
-            .synth
-            .as_mut()
-            .ok_or_else(|| "set_data not called (synth)".to_string())?;
-
-        let raw_words = ktts_kma::analyze(kma, text).map_err(|e| format!("kma analyze: {e}"))?;
-        let word_sen: Vec<u8> = raw_words
-            .iter()
-            .map(|w| {
-                if w.b_word_sen {
-                    w.source.last().copied().unwrap_or(0) as u8
-                } else {
-                    0
-                }
-            })
-            .collect();
-        let words: Vec<ktts_pron::kma_types::WordAnal> =
-            raw_words.iter().cloned().map(conv_kma_word).collect();
-
-        let raw_pron =
-            ktts_pron::pronounce(pron, &words).map_err(|e| format!("pron pronounce: {e}"))?;
-
-        let mut targets: Vec<ktts_synth::SyllableTarget> = Vec::new();
-        let mut w_start = 0usize;
-        let word_num = raw_words.len();
-        for (wi, w) in raw_words.iter().enumerate() {
-            if w.b_sentence_end {
-                targets.extend(prosody_sentence(
-                    prosody, &raw_pron, &word_sen, w_start, wi,
-                )?);
-                w_start = wi + 1;
-            }
-        }
-        if w_start < word_num {
-            targets.extend(prosody_sentence(
-                prosody,
-                &raw_pron,
-                &word_sen,
-                w_start,
-                word_num - 1,
-            )?);
-        }
-
-        // One shot: setting the params individually would reset the others.
-        // Params left at their API default keep the InfoDic.wdic values, so
-        // each call is independent of the previous one.
-        synth.set_params(ktts_synth::setting::IniParams::from_api(
-            synth.base_ini_params(),
-            speed,
-            pitch,
-            volume,
-        ));
-
-        let synth_input = conv_pron_to_synth(&raw_pron);
-        if targets.is_empty() {
-            return Ok(wav::build_wav(&[]));
-        }
-        let samples = ktts_synth::synthesize(synth, &synth_input, &targets)
-            .map_err(|e| format!("synth synthesize: {e}"))?;
+            .ok_or_else(|| "set_data not called".to_string())?;
+        let samples = engine
+            .synthesize(
+                text,
+                &ktts_engine::VoiceParams {
+                    speed,
+                    pitch,
+                    volume,
+                },
+            )
+            .map_err(|e| e.to_string())?;
         Ok(wav::build_wav(&samples))
     }
 }
@@ -487,7 +275,7 @@ impl KttsEngine {
         reason = "wasm_bindgen requires non-const exported methods"
     )]
     pub fn is_ready(&self) -> bool {
-        self.kma.is_some() && self.pron.is_some() && self.prosody.is_some() && self.synth.is_some()
+        self.engine.is_some()
     }
 
     /// Synthesizes a text into a WAV file (JS entry point).
@@ -509,106 +297,7 @@ impl KttsEngine {
 
 #[cfg(test)]
 mod tests {
-    #![expect(
-        clippy::float_cmp,
-        reason = "oracle assertions use exact float equality"
-    )]
     use super::*;
-
-    #[test]
-    fn kma_word_conversion_carries_b_word_sen() {
-        let w = ktts_kma::WordAnal {
-            morphs: vec![ktts_kma::Morph {
-                cvc: vec![13, 3, 2],
-                pos: [b'n', 0],
-                prob: -1.5,
-                surface_len: 1,
-            }],
-            w_byte_num: 2,
-            word_cvc: vec![13, 3, 2],
-            b_word_sen: true,
-            b_sentence_end: false,
-            source: vec![0xC548],
-        };
-        let pw = conv_kma_word(w);
-        assert_eq!(pw.morphs.len(), 1);
-        assert_eq!(pw.morphs[0].cvc, vec![13, 3, 2]);
-        assert_eq!(pw.morphs[0].pos, [b'n', 0]);
-        assert_eq!(pw.w_byte_num, 2usize);
-        assert_eq!(pw.word_cvc, vec![13, 3, 2]);
-        assert!(pw.b_word_sen);
-    }
-
-    #[test]
-    fn pron_to_prosody_syllable_conversion() {
-        let p = ktts_pron::PronText {
-            syllables: vec![
-                ktts_pron::PronSyllable {
-                    cvc: vec![13, 3, 2],
-                    word_idx: 0,
-                    is_word_start: true,
-                    pos: [b'n', 0],
-                    morph_idx: 0,
-                    morph_pos: 0,
-                },
-                ktts_pron::PronSyllable {
-                    cvc: vec![b'.'],
-                    word_idx: 1,
-                    is_word_start: true,
-                    pos: [b'L', 0],
-                    morph_idx: 0,
-                    morph_pos: 0,
-                },
-            ],
-            phoneme_codes: vec![13, 3, 2, b'.'],
-            word_morphs: vec![],
-        };
-        let pp = conv_pron_to_prosody(&p);
-        assert_eq!(pp.syllables.len(), 2);
-        assert_eq!(pp.syllables[0].cvc, [13, 3, 2]);
-        assert_eq!(pp.syllables[0].pos, b'n');
-        assert_eq!(pp.syllables[1].cvc, [b'.', 1, 1]);
-        assert_eq!(pp.syllables[1].pos, b'L');
-        assert_eq!(pp.phoneme_codes, vec![13, 3, 2, b'.']);
-    }
-
-    #[test]
-    fn pron_to_synth_passes_raw_cvc_unchanged() {
-        let p = ktts_pron::PronText {
-            syllables: vec![ktts_pron::PronSyllable {
-                cvc: vec![13, 3, 2],
-                word_idx: 0,
-                is_word_start: true,
-                pos: [b'n', 0],
-                morph_idx: 0,
-                morph_pos: 0,
-            }],
-            phoneme_codes: vec![13, 3, 2],
-            word_morphs: vec![],
-        };
-        let sp = conv_pron_to_synth(&p);
-        assert_eq!(sp.syllables.len(), 1);
-        assert_eq!(sp.syllables[0].cvc, "\r\x03\x02");
-        assert_eq!(sp.syllables[0].pos, b'n');
-        assert_eq!(sp.phoneme_codes, vec![13, 3, 2]);
-    }
-
-    #[test]
-    fn target_conversion_copies_fields() {
-        let t = ktts_prosody::SyllableTarget {
-            dur: 123.5,
-            ave_length: [1, 2, 3],
-            f0: [100.0; 12],
-            tobi: 0.7,
-            boundary: 0x15,
-        };
-        let ts = conv_target_to_synth(t);
-        assert_eq!(ts.dur, 123.5);
-        assert_eq!(ts.ave_length, [1, 2, 3]);
-        assert_eq!(ts.f0, [100.0; 12]);
-        assert_eq!(ts.tobi, 0.7);
-        assert_eq!(ts.boundary, 0x15);
-    }
 
     #[test]
     fn engine_requires_set_data() {

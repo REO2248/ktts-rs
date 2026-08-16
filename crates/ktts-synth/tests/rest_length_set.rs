@@ -8,8 +8,7 @@
     clippy::cast_possible_wrap,
     reason = "test fixtures: oracle values converted with intentional casts"
 )]
-use ktts_synth::pron::{PronSyllable, PronText};
-use ktts_synth::prosody::SyllableTarget;
+use ktts_synth::{PronSyllable, PronText, SyllableTarget};
 
 fn data_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(

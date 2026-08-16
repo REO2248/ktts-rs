@@ -1,35 +1,15 @@
 [package]
-name = "ktts-cli"
+name = "ktts-engine"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-default-run = "ktts"
-
-[[bin]]
-name = "ktts"
-path = "src/main.rs"
-required-features = ["cli"]
-
-[features]
-default = ["cli"]
-cli = ["dep:clap"]
-# Embeds the kttsdb dictionary data into the binary at build time,
-# producing a standalone `ktts` that needs no data directory.
-embed = []
 
 [dependencies]
-clap = { version = "4", features = ["derive"], optional = true }
 ktts-dict = { path = "../ktts-dict" }
-ktts-engine = { path = "../ktts-engine" }
-
-[dev-dependencies]
 ktts-kma = { path = "../ktts-kma" }
 ktts-pron = { path = "../ktts-pron" }
 ktts-prosody = { path = "../ktts-prosody" }
 ktts-synth = { path = "../ktts-synth" }
-
-[build-dependencies]
-ktts-dict = { path = "../ktts-dict" }
 
 [lints.rust]
 unsafe_code = "deny"
@@ -41,6 +21,7 @@ deprecated_in_future = "deny"
 missing_debug_implementations = "warn"
 missing_copy_implementations = "warn"
 unused_crate_dependencies = "warn"
+
 [lints.clippy]
 all = "deny"
 pedantic = "deny"

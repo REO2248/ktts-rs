@@ -1,11 +1,10 @@
+use crate::VoiceParams;
 use crate::consts::{CLAMP_HIGH_PITCH_SPEED, CLAMP_HIGH_VOICE, HALF, PITCH_BASE};
 
 /// Engine-unit voice parameters (`m_pitch`/`m_speed`/`m_voice`/`m_volume` in
 /// the C engine) as loaded from `InfoDic.wdic`.
 ///
-/// `SynthContext` keeps these as the source of truth: the single-field
-/// setters change one field and leave the others intact, so setting several
-/// parameters composes instead of resetting the others to their defaults.
+/// Kept private so frontend adapters never depend on engine units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IniParams {
     pub pitch: i32,
@@ -33,21 +32,21 @@ impl IniParams {
         clippy::cast_possible_truncation,
         reason = "C port: param scaling to engine units"
     )]
-    pub const fn from_api(base: Self, speed: f32, pitch: f32, volume: f32) -> Self {
+    pub const fn from_api(base: Self, params: VoiceParams) -> Self {
         Self {
-            pitch: if pitch.abs() > 1e-6 {
-                (PITCH_BASE * (1.0 + pitch)) as i32
+            pitch: if params.pitch.abs() > 1e-6 {
+                (PITCH_BASE * (1.0 + params.pitch)) as i32
             } else {
                 base.pitch
             },
-            speed: if (speed - 1.0).abs() > 1e-6 {
-                (100.0 * speed) as i32
+            speed: if (params.speed - 1.0).abs() > 1e-6 {
+                (100.0 * params.speed) as i32
             } else {
                 base.speed
             },
             voice: base.voice,
-            volume: if (volume - 1.0).abs() > 1e-6 {
-                (150.0 * volume) as i32
+            volume: if (params.volume - 1.0).abs() > 1e-6 {
+                (150.0 * params.volume) as i32
             } else {
                 base.volume
             },
@@ -70,6 +69,7 @@ pub struct SynthParams {
 
 impl SynthParams {
     #[must_use]
+    #[cfg(test)]
     pub const fn defaults() -> Self {
         Self {
             pitch: 1.0,
@@ -143,24 +143,38 @@ mod tests {
     #[test]
     fn from_api_keeps_base_for_default_params() {
         let base = IniParams::defaults();
-        assert_eq!(IniParams::from_api(base, 1.0, 0.0, 1.0), base);
+        assert_eq!(IniParams::from_api(base, VoiceParams::default()), base);
         let custom = IniParams {
             pitch: 160,
             speed: 90,
             voice: 110,
             volume: 130,
         };
-        assert_eq!(IniParams::from_api(custom, 1.0, 0.0, 1.0), custom);
+        assert_eq!(IniParams::from_api(custom, VoiceParams::default()), custom);
     }
 
     #[test]
     fn from_api_scales_all_params_together() {
-        let p = IniParams::from_api(IniParams::defaults(), 1.5, 0.5, 1.5);
+        let p = IniParams::from_api(
+            IniParams::defaults(),
+            VoiceParams {
+                speed: 1.5,
+                pitch: 0.5,
+                volume: 1.5,
+            },
+        );
         assert_eq!(p.pitch, 225);
         assert_eq!(p.speed, 150);
         assert_eq!(p.voice, 100);
         assert_eq!(p.volume, 225);
-        let p = IniParams::from_api(IniParams::defaults(), 0.5, -0.2, 0.5);
+        let p = IniParams::from_api(
+            IniParams::defaults(),
+            VoiceParams {
+                speed: 0.5,
+                pitch: -0.2,
+                volume: 0.5,
+            },
+        );
         assert_eq!(p.pitch, 120);
         assert_eq!(p.speed, 50);
         assert_eq!(p.volume, 75);

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ktts-dict", "crates/ktts-cli", "crates/ktts-kma", "crates/ktts-pron", "crates/ktts-prosody", "crates/ktts-synth", "crates/ktts-wasm"]
+members = ["crates/ktts-dict", "crates/ktts-engine", "crates/ktts-cli", "crates/ktts-kma", "crates/ktts-pron", "crates/ktts-prosody", "crates/ktts-synth", "crates/ktts-wasm"]
 
 [workspace.package]
 version = "0.1.0"

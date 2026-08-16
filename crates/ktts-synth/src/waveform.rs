@@ -103,14 +103,14 @@ fn rest_length_set(
         let cur_phone = selection.best[cur_first].iter().flatten().last();
         let prev_ok = match prev_phone {
             Some(bp) => {
-                let rec = ctx.rec(bp)?;
+                let rec = ctx.rec(*bp)?;
                 rec.phones[3].wrapping_add(0xa0) < 2
             }
             None => true,
         };
         let cur_ok = match cur_phone {
             Some(bp) => {
-                let rec = ctx.rec(bp)?;
+                let rec = ctx.rec(*bp)?;
                 rec.phones[1].wrapping_add(0xa0) < 2
             }
             None => true,
@@ -156,7 +156,7 @@ fn all_phone_info(
             units.push(UnitEntry::rest(ave_length[li]));
         }
         for bp in selection.best[li].iter().flatten() {
-            let rec = ctx.rec(bp)?;
+            let rec = ctx.rec(*bp)?;
             if rec.w_pcm_size != 0 {
                 let pcm = ctx.pcm_segment(rec)?;
                 units.push(UnitEntry {

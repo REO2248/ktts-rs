@@ -7,13 +7,9 @@
     clippy::cast_precision_loss,
     clippy::suboptimal_flops,
     clippy::cast_sign_loss,
-    clippy::cast_possible_wrap,
-    clippy::float_cmp,
     reason = "test fixtures: oracle values converted with intentional casts"
 )]
-use ktts_synth::context;
-use ktts_synth::pron::{PronSyllable, PronText};
-use ktts_synth::prosody::SyllableTarget;
+use ktts_synth::{PronSyllable, PronText, SyllableTarget, VoiceParams};
 
 fn data_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(
@@ -94,19 +90,6 @@ fn check_audio(pcm: &[i16], target_dur_ms: f32, tolerance_ms: f32) {
 }
 
 #[test]
-fn synth_db_load_and_first_unit() {
-    let c = ctx();
-    let db = &c;
-    let _ = db;
-    assert_eq!(ktts_dict::synthdb::uraw_to_pcm(0xc1u8 as i8), 1820);
-    let rec0 = &c.db_ref().idx.units[0].records[0];
-    let pcm = c.db_ref().pcm_segment(rec0).expect("first record decode");
-    assert_eq!(pcm.len(), rec0.w_pcm_size as usize);
-    let peak = pcm.iter().map(|&s| s.abs()).max().unwrap_or(0);
-    assert!(peak > 1000, "peak {peak} of first unit too small");
-}
-
-#[test]
 fn single_vowel_a_fast_path() {
     let text = PronText {
         syllables: vec![syl("\x0d\x03\x01", 0, true)],
@@ -116,8 +99,6 @@ fn single_vowel_a_fast_path() {
     let targets = vec![tgt_for("\x0d\x03\x01", 150.0, 200.0)];
     let c = ctx();
     let pcm = ktts_synth::synthesize(&c, &text, &targets).expect("synthesis");
-    assert_eq!(c.params().pitch, 1.0);
-    assert_eq!(c.params().speed, 1.0);
     check_audio(&pcm, 130.0, 70.0);
     let total_ms = pcm.len() as f32 / 16.0;
     let v = voiced_len(&pcm) as f32 / 16.0;
@@ -135,10 +116,17 @@ fn single_vowel_a_slow_path_pitch() {
         word_sen: vec![],
     };
     let targets = vec![tgt_for("\x0d\x03\x01", 150.0, 200.0)];
-    let mut c = ctx();
-    c.set_pitch(200);
-    assert!(c.params().pitch != 1.0);
-    let pcm = ktts_synth::synthesize(&c, &text, &targets).expect("synthesis (slow path)");
+    let c = ctx();
+    let pcm = ktts_synth::synthesize_with_params(
+        &c,
+        &text,
+        &targets,
+        VoiceParams {
+            pitch: 1.0 / 3.0,
+            ..VoiceParams::default()
+        },
+    )
+    .expect("synthesis (slow path)");
     check_audio(&pcm, 150.0, 60.0);
 }
 
@@ -150,10 +138,17 @@ fn single_vowel_a_slow_path_speed() {
         word_sen: vec![],
     };
     let targets = vec![tgt_for("\x0d\x03\x01", 150.0, 200.0)];
-    let mut c = ctx();
-    c.set_speed(150);
-    assert!(c.params().speed != 1.0);
-    let pcm = ktts_synth::synthesize(&c, &text, &targets).expect("synthesis (slow path)");
+    let c = ctx();
+    let pcm = ktts_synth::synthesize_with_params(
+        &c,
+        &text,
+        &targets,
+        VoiceParams {
+            speed: 1.5,
+            ..VoiceParams::default()
+        },
+    )
+    .expect("synthesis (slow path)");
     check_audio(&pcm, 100.0, 60.0);
 }
 
@@ -276,44 +271,30 @@ fn long_sentence() {
 }
 
 #[test]
-fn setters_compose_instead_of_resetting_each_other() {
-    let mut c = ctx();
-    let base = c.base_ini_params();
-    assert_eq!(
-        c.ini_params(),
-        base,
-        "a freshly loaded context must start at the InfoDic.wdic values"
-    );
-    c.set_speed(150);
-    c.set_pitch(225);
-    c.set_volume(75);
-    assert_eq!(
-        c.ini_params(),
-        ktts_synth::setting::IniParams {
-            pitch: 225,
-            speed: 150,
-            voice: base.voice,
-            volume: 75,
+fn voice_params_apply_together_without_mutating_context() {
+    let text = PronText {
+        syllables: vec![syl("\x0d\x03\x05", 0, true)],
+        phoneme_codes: vec![0x0d, 0x03, 0x05],
+        word_sen: vec![],
+    };
+    let targets = vec![tgt_for("\x0d\x03\x05", 150.0, 200.0)];
+    let c = ctx();
+    let before = ktts_synth::synthesize(&c, &text, &targets).expect("default before");
+    let changed = ktts_synth::synthesize_with_params(
+        &c,
+        &text,
+        &targets,
+        VoiceParams {
+            speed: 1.5,
+            pitch: 0.5,
+            volume: 0.5,
         },
-    );
-    let p = c.params();
-    assert_ne!(p.speed, 1.0, "set_pitch/set_volume must not reset speed");
-    assert_ne!(p.pitch, 1.0, "set_speed/set_volume must not reset pitch");
-    assert_ne!(p.volume, 1.5, "set_speed/set_pitch must not reset volume");
-    assert_eq!(
-        c.base_ini_params(),
-        base,
-        "setters must not modify the InfoDic.wdic base values"
-    );
+    )
+    .expect("all voice params");
+    let after = ktts_synth::synthesize(&c, &text, &targets).expect("default after");
 
-    let mut c2 = ctx();
-    c2.set_params(ktts_synth::setting::IniParams {
-        pitch: 225,
-        speed: 150,
-        voice: base.voice,
-        volume: 75,
-    });
-    assert_eq!(c2.params(), p, "set_params must match composed setters");
+    assert_ne!(changed, before, "all voice params must affect synthesis");
+    assert_eq!(after, before, "voice params must not leak between calls");
 }
 
 #[test]
@@ -326,9 +307,16 @@ fn psola_slow_path_output_differs_from_fast() {
     let targets = vec![tgt_for("\x0d\x03\x05", 150.0, 200.0)];
     let c = ctx();
     let fast = ktts_synth::synthesize(&c, &text, &targets).expect("fast path");
-    let mut c2 = ctx();
-    c2.set_pitch(120);
-    let slow = ktts_synth::synthesize(&c2, &text, &targets).expect("slow path");
+    let slow = ktts_synth::synthesize_with_params(
+        &c,
+        &text,
+        &targets,
+        VoiceParams {
+            pitch: -0.2,
+            ..VoiceParams::default()
+        },
+    )
+    .expect("slow path");
     let diff = fast.iter().zip(slow.iter()).filter(|(a, b)| a != b).count();
     assert!(
         diff > 100,
@@ -413,10 +401,4 @@ fn wae_normalizes_to_oe_unit() {
     let pcm = ktts_synth::synthesize(&c, &text, &targets).expect("왜 synthesis");
     let v = voiced_len(&pcm) as f32 / 16.0;
     assert!(v > 20.0, "왜 is silent (voiced {v}ms)");
-    let phrase = context::build_phrase(&text, &targets).unwrap();
-    assert_eq!(
-        phrase.letters[0].cvc,
-        [0, 0x32, 0],
-        "ㅙ must be normalized to ㅚ"
-    );
 }

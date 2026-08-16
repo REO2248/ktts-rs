@@ -30,6 +30,10 @@ pub struct Letter {
 }
 
 #[derive(Debug, Clone)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "word_sen preserves the C engine's sentence-marker name"
+)]
 pub struct Word {
     pub letters: std::ops::Range<usize>,
     pub rest_flag: u8,
